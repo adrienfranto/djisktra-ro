@@ -317,7 +317,7 @@ export default function DijkstraMinimum() {
   return (
     <div className="flex flex-col h-screen bg-gray-50 overflow-auto">
       <header className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-4 shadow-md sticky top-0 z-10">
-        <h1 className="text-3xl font-bold">Algorithme CHO-DIJKSTRA MINIMUM ADRIEN</h1>
+        <h1 className="text-3xl font-bold">Algorithme CHO-DIJKSTRA MINIMUM</h1>
         <p className="text-sm opacity-80">Trouvez le chemin le plus court dans un graphe pondéré</p>
       </header>
       
