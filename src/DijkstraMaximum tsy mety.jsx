@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 
-export default function DijkstraMinimum() {
+export default function DijkstraMaximum() {
   // Données statiques initiales pour les nœuds
   const initialNodes = [
     { id: 1, x: 100, y: 150, label: 'A' },
@@ -25,18 +25,15 @@ export default function DijkstraMinimum() {
   const [edges, setEdges] = useState(initialEdges);
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
-  const [mode, setMode] = useState('view'); // 'view', 'addNode', 'addEdge', 'delete', 'move'
+  const [mode, setMode] = useState('view');
   const [sourceNode, setSourceNode] = useState(null);
   const [targetNode, setTargetNode] = useState(null);
   const [weight, setWeight] = useState(1);
   const [results, setResults] = useState(null);
   const [highlightedPath, setHighlightedPath] = useState([]);
   const [calculationSteps, setCalculationSteps] = useState([]);
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const [allCalculationSteps, setAllCalculationSteps] = useState([]);
   const [draggedNode, setDraggedNode] = useState(null);
   const [nodeCounts, setNodeCounts] = useState({});
-  const [isStepMode, setIsStepMode] = useState(false);
   const svgRef = useRef(null);
 
   // Calculer le nombre de chemins connectés à chaque nœud
@@ -61,9 +58,6 @@ export default function DijkstraMinimum() {
     setResults(null);
     setHighlightedPath([]);
     setCalculationSteps([]);
-    setAllCalculationSteps([]);
-    setCurrentStepIndex(0);
-    setIsStepMode(false);
     setMode('view');
     setDraggedNode(null);
   };
@@ -73,11 +67,17 @@ export default function DijkstraMinimum() {
     if (mode !== 'addNode') return;
     
     const svg = svgRef.current;
+    if (!svg) return;
+    
     const point = svg.createSVGPoint();
     point.x = e.clientX;
     point.y = e.clientY;
     
-    const svgP = point.matrixTransform(svg.getScreenCTM().inverse());
+    // Vérifier si la matrice SVG existe avant d'appeler matrixTransform
+    const matrix = svg.getScreenCTM();
+    if (!matrix) return;
+    
+    const svgP = point.matrixTransform(matrix.inverse());
     
     const newNode = {
       id: Date.now(),
@@ -101,11 +101,17 @@ export default function DijkstraMinimum() {
     if (mode !== 'move' || draggedNode === null) return;
     
     const svg = svgRef.current;
+    if (!svg) return;
+    
     const point = svg.createSVGPoint();
     point.x = e.clientX;
     point.y = e.clientY;
     
-    const svgP = point.matrixTransform(svg.getScreenCTM().inverse());
+    // Vérifier si la matrice SVG existe avant d'appeler matrixTransform
+    const matrix = svg.getScreenCTM();
+    if (!matrix) return;
+    
+    const svgP = point.matrixTransform(matrix.inverse());
     
     setNodes(nodes.map(node => 
       node.id === draggedNode 
@@ -168,13 +174,14 @@ export default function DijkstraMinimum() {
 
   // Mettre à jour le poids d'une arête
   const updateEdgeWeight = (edgeId, newWeight) => {
+    const weightValue = parseInt(newWeight) || 1;
     setEdges(edges.map(edge => 
-      edge.id === edgeId ? { ...edge, weight: parseInt(newWeight) || 1 } : edge
+      edge.id === edgeId ? { ...edge, weight: weightValue } : edge
     ));
   };
 
-  // Préparer l'algorithme de Dijkstra
-  const prepareDijkstra = () => {
+  // Algorithme Dijkstra Maximum
+  const runDijkstraMaximum = () => {
     if (!sourceNode || !targetNode) return;
     
     // Créer un graphe à partir des nœuds et arêtes
@@ -188,210 +195,38 @@ export default function DijkstraMinimum() {
       graph[edge.target][edge.source] = edge.weight; // graphe non orienté
     });
     
-    // Initialiser les distances
-    const distances = {};
+    // Initialiser les maximums
+    const maximums = {};
     const previous = {};
     const unvisited = new Set();
     const steps = [];
     
     nodes.forEach(node => {
-      distances[node.id] = Infinity;
+      maximums[node.id] = node.id === sourceNode ? 0 : -Infinity; // On initialise avec le minimum possible
       previous[node.id] = null;
       unvisited.add(node.id);
     });
-    
-    distances[sourceNode] = 0;
     
     // Capturer l'état initial
     steps.push({
       iteration: 0,
       current: null,
-      distances: { ...distances },
-      unvisited: [...unvisited],
-      previous: { ...previous }
-    });
-    
-    setAllCalculationSteps(steps);
-    setCalculationSteps([steps[0]]);
-    setCurrentStepIndex(0);
-    setIsStepMode(true);
-    
-    // Réinitialiser les résultats précédents
-    setResults(null);
-    setHighlightedPath([]);
-  };
-
-  // Passer à l'étape suivante de l'algorithme
-  const nextStep = () => {
-    if (currentStepIndex >= allCalculationSteps.length - 1) {
-      // Si on est déjà à la dernière étape existante, calculer la prochaine étape
-      calculateNextStep();
-    } else {
-      // Sinon, avancer à l'étape suivante déjà calculée
-      setCurrentStepIndex(currentStepIndex + 1);
-      setCalculationSteps(allCalculationSteps.slice(0, currentStepIndex + 2));
-      
-      // Mettre à jour le chemin surligné si on est à la dernière étape
-      if (currentStepIndex + 1 === allCalculationSteps.length - 1) {
-        updateHighlightedPath();
-      }
-    }
-  };
-
-  // Calculer la prochaine étape de l'algorithme de Dijkstra
-  const calculateNextStep = () => {
-    // Récupérer l'état actuel
-    const previousStep = allCalculationSteps[allCalculationSteps.length - 1];
-    const distances = { ...previousStep.distances };
-    const previous = { ...previousStep.previous };
-    const unvisited = new Set(previousStep.unvisited);
-    
-    // Récréer le graphe
-    const graph = {};
-    nodes.forEach(node => {
-      graph[node.id] = {};
-    });
-    
-    edges.forEach(edge => {
-      graph[edge.source][edge.target] = edge.weight;
-      graph[edge.target][edge.source] = edge.weight;
-    });
-    
-    // Trouver le nœud avec la distance minimale
-    let minDistance = Infinity;
-    let current = null;
-    
-    unvisited.forEach(nodeId => {
-      if (distances[nodeId] < minDistance) {
-        minDistance = distances[nodeId];
-        current = nodeId;
-      }
-    });
-    
-    // S'il n'y a pas de nœud à visiter ou si on a atteint la destination, terminer
-    if (current === null || current === targetNode || unvisited.size === 0) {
-      // Reconstruire le chemin final
-      updateHighlightedPath();
-      return;
-    }
-    
-    // Retirer le nœud courant des non visités
-    unvisited.delete(current);
-    
-    // Mettre à jour les distances pour les voisins
-    const updates = {};
-    
-    Object.keys(graph[current]).forEach(neighbor => {
-      neighbor = parseInt(neighbor);
-      if (unvisited.has(neighbor)) {
-        const alt = distances[current] + graph[current][neighbor];
-        if (alt < distances[neighbor]) {
-          distances[neighbor] = alt;
-          previous[neighbor] = current;
-          updates[neighbor] = {
-            oldDistance: Infinity,
-            newDistance: alt,
-            via: current
-          };
-        }
-      }
-    });
-    
-    // Créer la nouvelle étape
-    const newStep = {
-      iteration: allCalculationSteps.length,
-      current,
-      distances: { ...distances },
-      unvisited: [...unvisited],
-      previous: { ...previous },
-      updates
-    };
-    
-    // Mettre à jour toutes les étapes
-    const newAllSteps = [...allCalculationSteps, newStep];
-    setAllCalculationSteps(newAllSteps);
-    setCurrentStepIndex(newAllSteps.length - 1);
-    setCalculationSteps(newAllSteps);
-    
-    // Si on a atteint la destination, construire le chemin final
-    if (current === targetNode || unvisited.size === 0) {
-      updateHighlightedPath();
-    }
-  };
-
-  // Construire et mettre à jour le chemin final
-  const updateHighlightedPath = () => {
-    const lastStep = allCalculationSteps[allCalculationSteps.length - 1];
-    const previous = lastStep.previous;
-    
-    // Reconstruire le chemin
-    const path = [];
-    let current = targetNode;
-    
-    if (previous[current] !== null || current === sourceNode) {
-      while (current !== null) {
-        path.unshift(current);
-        current = previous[current];
-      }
-    }
-    
-    setResults({
-      distance: lastStep.distances[targetNode],
-      path: path
-    });
-    
-    setHighlightedPath(path);
-  };
-
-  // Exécuter l'algorithme de Dijkstra complet
-  const runDijkstra = () => {
-    if (!sourceNode || !targetNode) return;
-    
-    // Créer un graphe à partir des nœuds et arêtes
-    const graph = {};
-    nodes.forEach(node => {
-      graph[node.id] = {};
-    });
-    
-    edges.forEach(edge => {
-      graph[edge.source][edge.target] = edge.weight;
-      graph[edge.target][edge.source] = edge.weight; // graphe non orienté
-    });
-    
-    // Initialiser les distances
-    const distances = {};
-    const previous = {};
-    const unvisited = new Set();
-    const steps = [];
-    
-    nodes.forEach(node => {
-      distances[node.id] = Infinity;
-      previous[node.id] = null;
-      unvisited.add(node.id);
-    });
-    
-    distances[sourceNode] = 0;
-    
-    // Capturer l'état initial
-    steps.push({
-      iteration: 0,
-      current: null,
-      distances: { ...distances },
+      maximums: { ...maximums },
       unvisited: [...unvisited],
       previous: { ...previous }
     });
     
     let iteration = 1;
     
-    // Algorithme de Dijkstra
+    // Algorithme Dijkstra Maximum
     while (unvisited.size > 0) {
-      // Trouver le nœud avec la distance minimale
-      let minDistance = Infinity;
+      // Trouver le nœud avec le maximum le plus élevé
+      let maxValue = -Infinity;
       let current = null;
       
       unvisited.forEach(nodeId => {
-        if (distances[nodeId] < minDistance) {
-          minDistance = distances[nodeId];
+        if (maximums[nodeId] > maxValue) {
+          maxValue = maximums[nodeId];
           current = nodeId;
         }
       });
@@ -400,21 +235,26 @@ export default function DijkstraMinimum() {
       
       unvisited.delete(current);
       
-      // Mettre à jour les distances pour les voisins
+      // Mettre à jour les maximums pour les voisins
       const updates = {};
       
       Object.keys(graph[current]).forEach(neighbor => {
         neighbor = parseInt(neighbor);
         if (unvisited.has(neighbor)) {
-          const alt = distances[current] + graph[current][neighbor];
-          if (alt < distances[neighbor]) {
-            distances[neighbor] = alt;
-            previous[neighbor] = current;
+          // Chercher le maximum entre le chemin actuel et le nouveau chemin
+          const potentialMax = Math.max(
+            maximums[current] + graph[current][neighbor],
+            maximums[neighbor]
+          );
+          
+          if (potentialMax > maximums[neighbor]) {
             updates[neighbor] = {
-              oldDistance: Infinity,
-              newDistance: alt,
+              oldMax: maximums[neighbor],
+              newMax: potentialMax,
               via: current
             };
+            maximums[neighbor] = potentialMax;
+            previous[neighbor] = current;
           }
         }
       });
@@ -423,7 +263,7 @@ export default function DijkstraMinimum() {
       steps.push({
         iteration,
         current,
-        distances: { ...distances },
+        maximums: { ...maximums },
         unvisited: [...unvisited],
         previous: { ...previous },
         updates
@@ -444,15 +284,12 @@ export default function DijkstraMinimum() {
     }
     
     setResults({
-      distance: distances[targetNode],
+      maxPath: maximums[targetNode],
       path: path
     });
     
     setHighlightedPath(path);
     setCalculationSteps(steps);
-    setAllCalculationSteps(steps);
-    setCurrentStepIndex(steps.length - 1);
-    setIsStepMode(false);
   };
 
   // Réinitialiser les résultats et les sélections
@@ -460,9 +297,6 @@ export default function DijkstraMinimum() {
     setResults(null);
     setHighlightedPath([]);
     setCalculationSteps([]);
-    setAllCalculationSteps([]);
-    setCurrentStepIndex(0);
-    setIsStepMode(false);
     setSourceNode(null);
     setTargetNode(null);
   };
@@ -498,9 +332,9 @@ export default function DijkstraMinimum() {
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 overflow-auto">
-      <header className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-4 shadow-md sticky top-0 z-10">
-        <h1 className="text-3xl font-bold">Algorithme CHO-DIJKSTRA MINIMUM</h1>
-        <p className="text-sm opacity-80">Trouvez le chemin le plus court dans un graphe pondéré</p>
+      <header className="bg-gradient-to-r from-green-600 to-emerald-700 text-white p-4 shadow-md sticky top-0 z-10">
+        <h1 className="text-3xl font-bold">Algorithme Dijkstra Maximum</h1>
+        <p className="text-sm opacity-80">Trouvez le chemin avec le maximum de poids dans un graphe</p>
       </header>
       
       <div className="flex flex-col lg:flex-row flex-1 p-4 gap-4">
@@ -509,25 +343,25 @@ export default function DijkstraMinimum() {
             <h2 className="text-lg font-semibold mb-2 text-gray-700">Mode</h2>
             <div className="grid grid-cols-2 gap-2">
               <button 
-                className={`px-3 py-2 text-sm font-medium rounded ${mode === 'view' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                className={`px-3 py-2 text-sm font-medium rounded ${mode === 'view' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
                 onClick={() => setMode('view')}
               >
                 Afficher
               </button>
               <button 
-                className={`px-3 py-2 text-sm font-medium rounded ${mode === 'addNode' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                className={`px-3 py-2 text-sm font-medium rounded ${mode === 'addNode' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
                 onClick={() => setMode('addNode')}
               >
                 Ajouter Nœud
               </button>
               <button 
-                className={`px-3 py-2 text-sm font-medium rounded ${mode === 'addEdge' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                className={`px-3 py-2 text-sm font-medium rounded ${mode === 'addEdge' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
                 onClick={() => { setMode('addEdge'); setSourceNode(null); }}
               >
                 Ajouter Chemin
               </button>
               <button 
-                className={`px-3 py-2 text-sm font-medium rounded ${mode === 'move' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                className={`px-3 py-2 text-sm font-medium rounded ${mode === 'move' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
                 onClick={() => setMode('move')}
               >
                 Déplacer
@@ -552,7 +386,7 @@ export default function DijkstraMinimum() {
                 className="w-full px-3 py-2 border border-gray-300 rounded"
               />
               <p className="text-sm text-gray-500 mt-1">
-                {sourceNode ? `Premier nœud sélectionné: ${findNodeById(sourceNode)?.label}` : 'Sélectionnez le premier nœud'}
+                {sourceNode ? `Premier nœud sélectionné: ${findNodeById(sourceNode)?.label || ''}` : 'Sélectionnez le premier nœud'}
               </p>
             </div>
           )}
@@ -565,7 +399,7 @@ export default function DijkstraMinimum() {
                 <input 
                   type="number"
                   min="1"
-                  value={edges.find(e => e.id === selectedEdge)?.weight}
+                  value={edges.find(e => e.id === selectedEdge)?.weight || 1}
                   onChange={(e) => updateEdgeWeight(selectedEdge, e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded"
                 />
@@ -602,36 +436,19 @@ export default function DijkstraMinimum() {
                   ))}
                 </select>
               </div>
-              <div className="grid grid-cols-1 gap-2">
-                <button 
-                  className="w-full px-4 py-2 bg-green-600 text-white font-medium rounded hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                  onClick={runDijkstra}
-                  disabled={!sourceNode || !targetNode}
-                >
-                  Calcul complet
-                </button>
-                <button 
-                  className="w-full px-4 py-2 bg-blue-600 text-white font-medium rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                  onClick={prepareDijkstra}
-                  disabled={!sourceNode || !targetNode}
-                >
-                  Calcul étape par étape
-                </button>
-                {isStepMode && (
-                  <button 
-                    className="w-full px-4 py-2 bg-indigo-600 text-white font-medium rounded hover:bg-indigo-700"
-                    onClick={nextStep}
-                  >
-                    Étape suivante
-                  </button>
-                )}
-                <button 
-                  className="w-full px-4 py-2 bg-gray-300 text-gray-700 font-medium rounded hover:bg-gray-400"
-                  onClick={resetResults}
-                >
-                  Réinitialiser
-                </button>
-              </div>
+              <button 
+                className="w-full px-4 py-2 bg-green-600 text-white font-medium rounded hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                onClick={runDijkstraMaximum}
+                disabled={!sourceNode || !targetNode}
+              >
+                Trouver le chemin maximum
+              </button>
+              <button 
+                className="w-full px-4 py-2 bg-gray-300 text-gray-700 font-medium rounded hover:bg-gray-400"
+                onClick={resetResults}
+              >
+                Réinitialiser
+              </button>
             </div>
           </div>
           
@@ -645,13 +462,13 @@ export default function DijkstraMinimum() {
           {results && (
             <div className="border-t pt-4 mt-4">
               <h2 className="text-lg font-semibold mb-2 text-gray-700">Résultats</h2>
-              <div className="bg-blue-50 p-3 rounded border border-blue-200">
+              <div className="bg-green-50 p-3 rounded border border-green-200">
                 <p className="font-medium text-gray-700">
-                  Distance: <span className="text-blue-600">{results.distance}</span>
+                  Maximum du chemin: <span className="text-green-600">{results.maxPath}</span>
                 </p>
                 <p className="font-medium text-gray-700">
-                  Chemin: <span className="text-blue-600">
-                    {results.path.map(nodeId => findNodeById(nodeId)?.label).join(' → ')}
+                  Chemin: <span className="text-green-600">
+                    {results.path.map(nodeId => findNodeById(nodeId)?.label || '').join(' → ')}
                   </span>
                 </p>
               </div>
@@ -686,7 +503,7 @@ export default function DijkstraMinimum() {
                       y1={sourceNode.y}
                       x2={targetNode.x}
                       y2={targetNode.y}
-                      stroke={isEdgeInPath(edge) ? "#2563EB" : edge.id === selectedEdge ? "#EF4444" : "#9CA3AF"}
+                      stroke={isEdgeInPath(edge) ? "#10B981" : edge.id === selectedEdge ? "#EF4444" : "#9CA3AF"}
                       strokeWidth={isEdgeInPath(edge) ? 4 : 2}
                       strokeLinecap="round"
                       className="cursor-pointer"
@@ -697,8 +514,8 @@ export default function DijkstraMinimum() {
                       width={24}
                       height={24}
                       rx={12}
-                      fill={isEdgeInPath(edge) ? "#2563EB" : "white"}
-                      stroke={isEdgeInPath(edge) ? "#1D4ED8" : "#9CA3AF"}
+                      fill={isEdgeInPath(edge) ? "#10B981" : "white"}
+                      stroke={isEdgeInPath(edge) ? "#059669" : "#9CA3AF"}
                       strokeWidth={1}
                       className="cursor-pointer"
                     />
@@ -723,14 +540,14 @@ export default function DijkstraMinimum() {
                   key={node.id} 
                   onClick={(e) => { e.stopPropagation(); handleSelectElement(node, 'node'); }}
                   onMouseDown={(e) => handleNodeDragStart(e, node.id)}
-                  className={`cursor-${mode === 'move' ? 'move' : 'pointer'}`}
+                  className={mode === 'move' ? 'cursor-move' : 'cursor-pointer'}
                 >
                   <circle
                     cx={node.x}
                     cy={node.y}
                     r={20}
-                    fill={highlightedPath.includes(node.id) ? "#2563EB" : node.id === selectedNode ? "#EF4444" : node.id === sourceNode ? "#10B981" : node.id === targetNode ? "#8B5CF6" : "white"}
-                    stroke={highlightedPath.includes(node.id) ? "#1D4ED8" : node.id === selectedNode ? "#DC2626" : node.id === sourceNode ? "#059669" : node.id === targetNode ? "#7C3AED" : "#9CA3AF"}
+                    fill={highlightedPath.includes(node.id) ? "#10B981" : node.id === selectedNode ? "#EF4444" : node.id === sourceNode ? "#10B981" : node.id === targetNode ? "#8B5CF6" : "white"}
+                    stroke={highlightedPath.includes(node.id) ? "#059669" : node.id === selectedNode ? "#DC2626" : node.id === sourceNode ? "#059669" : node.id === targetNode ? "#7C3AED" : "#9CA3AF"}
                     strokeWidth={2}
                   />
                   <text
@@ -786,7 +603,7 @@ export default function DijkstraMinimum() {
           {/* Tableau des étapes de calcul */}
           {calculationSteps.length > 0 && (
             <div className="bg-white shadow-md rounded p-4 overflow-x-auto">
-              <h2 className="text-lg font-semibold mb-3 text-gray-700">Étapes de calcul CHO-DIJKSTRA MIN MAX</h2>
+              <h2 className="text-lg font-semibold mb-3 text-gray-700">Étapes de calcul Dijkstra Maximum</h2>
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
@@ -795,7 +612,7 @@ export default function DijkstraMinimum() {
                       <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nœud courant</th>
                       {nodes.map(node => (
                         <th key={node.id} scope="col" className={`px-4 py-3 text-center text-xs font-medium uppercase tracking-wider
-                          ${isNodeInPath(node.id) ? 'bg-blue-100 text-blue-600' : 'text-gray-500'}`}>
+                          ${isNodeInPath(node.id) ? 'bg-green-100 text-green-600' : 'text-gray-500'}`}>
                           {node.label}
                         </th>
                       ))}
@@ -809,7 +626,7 @@ export default function DijkstraMinimum() {
                           {step.current ? getNodeLabel(step.current) : 'Initial'}
                         </td>
                         {nodes.map(node => {
-                          const distance = step.distances[node.id];
+                          const maximum = step.maximums[node.id];
                           const isUpdated = step.updates && step.updates[node.id];
                           const isInFinalPath = isNodeInPath(node.id);
                           const isLast = index === calculationSteps.length - 1;
@@ -819,13 +636,13 @@ export default function DijkstraMinimum() {
                           
                           if (isInFinalPath && isLast) {
                             // Nœud dans le chemin final et dernière itération
-                            cellClass = 'bg-blue-500 text-white';
+                            cellClass = 'bg-green-500 text-white';
                           } else if (isInFinalPath) {
                             // Nœud dans le chemin final
-                            cellClass = 'bg-blue-100';
+                            cellClass = 'bg-green-100';
                           } else if (isUpdated) {
                             // Valeur mise à jour
-                            cellClass = 'bg-green-100';
+                            cellClass = 'bg-emerald-100';
                           } else if (node.id === step.current) {
                             // Nœud courant
                             cellClass = 'bg-yellow-100';
@@ -833,10 +650,10 @@ export default function DijkstraMinimum() {
                           
                           return (
                             <td key={node.id} className={`px-4 py-2 whitespace-nowrap text-sm text-center ${cellClass}`}>
-                              {distance === Infinity ? '∞' : distance}
+                              {maximum === -Infinity ? '∞' : maximum}
                               {step.previous[node.id] !== null && step.previous[node.id] !== undefined && 
                                 <span className={`text-xs ml-1 ${isInFinalPath && isLast ? 'text-white' : 'text-gray-500'}`}>
-                                  ( {getNodeLabel(step.previous[node.id])})
+                                  (via {getNodeLabel(step.previous[node.id])})
                                 </span>
                               }
                             </td>
@@ -852,11 +669,11 @@ export default function DijkstraMinimum() {
                 <h3 className="font-medium mb-2">Légende:</h3>
                 <div className="flex flex-wrap items-center space-x-4">
                   <div className="flex items-center">
-                    <div className="w-4 h-4 bg-blue-500 mr-2"></div>
+                    <div className="w-4 h-4 bg-green-500 mr-2"></div>
                     <span>Chemin final</span>
                   </div>
                   <div className="flex items-center">
-                    <div className="w-4 h-4 bg-blue-100 mr-2"></div>
+                    <div className="w-4 h-4 bg-green-100 mr-2"></div>
                     <span>Nœud du chemin final</span>
                   </div>
                   <div className="flex items-center">
@@ -864,8 +681,8 @@ export default function DijkstraMinimum() {
                     <span>Nœud courant</span>
                   </div>
                   <div className="flex items-center">
-                    <div className="w-4 h-4 bg-green-100 mr-2"></div>
-                    <span>Distance mise à jour</span>
+                    <div className="w-4 h-4 bg-emerald-100 mr-2"></div>
+                    <span>Maximum mis à jour</span>
                   </div>
                   <div className="flex items-center">
                     <div className="w-4 h-4 bg-white border border-gray-300 mr-2"></div>
@@ -876,7 +693,7 @@ export default function DijkstraMinimum() {
             </div>
           )}
           
-         
+        
         </div>
       </div>
     </div>

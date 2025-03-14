@@ -32,11 +32,8 @@ export default function DijkstraMinimum() {
   const [results, setResults] = useState(null);
   const [highlightedPath, setHighlightedPath] = useState([]);
   const [calculationSteps, setCalculationSteps] = useState([]);
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
-  const [allCalculationSteps, setAllCalculationSteps] = useState([]);
   const [draggedNode, setDraggedNode] = useState(null);
   const [nodeCounts, setNodeCounts] = useState({});
-  const [isStepMode, setIsStepMode] = useState(false);
   const svgRef = useRef(null);
 
   // Calculer le nombre de chemins connectés à chaque nœud
@@ -61,9 +58,6 @@ export default function DijkstraMinimum() {
     setResults(null);
     setHighlightedPath([]);
     setCalculationSteps([]);
-    setAllCalculationSteps([]);
-    setCurrentStepIndex(0);
-    setIsStepMode(false);
     setMode('view');
     setDraggedNode(null);
   };
@@ -173,177 +167,7 @@ export default function DijkstraMinimum() {
     ));
   };
 
-  // Préparer l'algorithme de Dijkstra
-  const prepareDijkstra = () => {
-    if (!sourceNode || !targetNode) return;
-    
-    // Créer un graphe à partir des nœuds et arêtes
-    const graph = {};
-    nodes.forEach(node => {
-      graph[node.id] = {};
-    });
-    
-    edges.forEach(edge => {
-      graph[edge.source][edge.target] = edge.weight;
-      graph[edge.target][edge.source] = edge.weight; // graphe non orienté
-    });
-    
-    // Initialiser les distances
-    const distances = {};
-    const previous = {};
-    const unvisited = new Set();
-    const steps = [];
-    
-    nodes.forEach(node => {
-      distances[node.id] = Infinity;
-      previous[node.id] = null;
-      unvisited.add(node.id);
-    });
-    
-    distances[sourceNode] = 0;
-    
-    // Capturer l'état initial
-    steps.push({
-      iteration: 0,
-      current: null,
-      distances: { ...distances },
-      unvisited: [...unvisited],
-      previous: { ...previous }
-    });
-    
-    setAllCalculationSteps(steps);
-    setCalculationSteps([steps[0]]);
-    setCurrentStepIndex(0);
-    setIsStepMode(true);
-    
-    // Réinitialiser les résultats précédents
-    setResults(null);
-    setHighlightedPath([]);
-  };
-
-  // Passer à l'étape suivante de l'algorithme
-  const nextStep = () => {
-    if (currentStepIndex >= allCalculationSteps.length - 1) {
-      // Si on est déjà à la dernière étape existante, calculer la prochaine étape
-      calculateNextStep();
-    } else {
-      // Sinon, avancer à l'étape suivante déjà calculée
-      setCurrentStepIndex(currentStepIndex + 1);
-      setCalculationSteps(allCalculationSteps.slice(0, currentStepIndex + 2));
-      
-      // Mettre à jour le chemin surligné si on est à la dernière étape
-      if (currentStepIndex + 1 === allCalculationSteps.length - 1) {
-        updateHighlightedPath();
-      }
-    }
-  };
-
-  // Calculer la prochaine étape de l'algorithme de Dijkstra
-  const calculateNextStep = () => {
-    // Récupérer l'état actuel
-    const previousStep = allCalculationSteps[allCalculationSteps.length - 1];
-    const distances = { ...previousStep.distances };
-    const previous = { ...previousStep.previous };
-    const unvisited = new Set(previousStep.unvisited);
-    
-    // Récréer le graphe
-    const graph = {};
-    nodes.forEach(node => {
-      graph[node.id] = {};
-    });
-    
-    edges.forEach(edge => {
-      graph[edge.source][edge.target] = edge.weight;
-      graph[edge.target][edge.source] = edge.weight;
-    });
-    
-    // Trouver le nœud avec la distance minimale
-    let minDistance = Infinity;
-    let current = null;
-    
-    unvisited.forEach(nodeId => {
-      if (distances[nodeId] < minDistance) {
-        minDistance = distances[nodeId];
-        current = nodeId;
-      }
-    });
-    
-    // S'il n'y a pas de nœud à visiter ou si on a atteint la destination, terminer
-    if (current === null || current === targetNode || unvisited.size === 0) {
-      // Reconstruire le chemin final
-      updateHighlightedPath();
-      return;
-    }
-    
-    // Retirer le nœud courant des non visités
-    unvisited.delete(current);
-    
-    // Mettre à jour les distances pour les voisins
-    const updates = {};
-    
-    Object.keys(graph[current]).forEach(neighbor => {
-      neighbor = parseInt(neighbor);
-      if (unvisited.has(neighbor)) {
-        const alt = distances[current] + graph[current][neighbor];
-        if (alt < distances[neighbor]) {
-          distances[neighbor] = alt;
-          previous[neighbor] = current;
-          updates[neighbor] = {
-            oldDistance: Infinity,
-            newDistance: alt,
-            via: current
-          };
-        }
-      }
-    });
-    
-    // Créer la nouvelle étape
-    const newStep = {
-      iteration: allCalculationSteps.length,
-      current,
-      distances: { ...distances },
-      unvisited: [...unvisited],
-      previous: { ...previous },
-      updates
-    };
-    
-    // Mettre à jour toutes les étapes
-    const newAllSteps = [...allCalculationSteps, newStep];
-    setAllCalculationSteps(newAllSteps);
-    setCurrentStepIndex(newAllSteps.length - 1);
-    setCalculationSteps(newAllSteps);
-    
-    // Si on a atteint la destination, construire le chemin final
-    if (current === targetNode || unvisited.size === 0) {
-      updateHighlightedPath();
-    }
-  };
-
-  // Construire et mettre à jour le chemin final
-  const updateHighlightedPath = () => {
-    const lastStep = allCalculationSteps[allCalculationSteps.length - 1];
-    const previous = lastStep.previous;
-    
-    // Reconstruire le chemin
-    const path = [];
-    let current = targetNode;
-    
-    if (previous[current] !== null || current === sourceNode) {
-      while (current !== null) {
-        path.unshift(current);
-        current = previous[current];
-      }
-    }
-    
-    setResults({
-      distance: lastStep.distances[targetNode],
-      path: path
-    });
-    
-    setHighlightedPath(path);
-  };
-
-  // Exécuter l'algorithme de Dijkstra complet
+  // Exécuter l'algorithme de Dijkstra
   const runDijkstra = () => {
     if (!sourceNode || !targetNode) return;
     
@@ -450,9 +274,6 @@ export default function DijkstraMinimum() {
     
     setHighlightedPath(path);
     setCalculationSteps(steps);
-    setAllCalculationSteps(steps);
-    setCurrentStepIndex(steps.length - 1);
-    setIsStepMode(false);
   };
 
   // Réinitialiser les résultats et les sélections
@@ -460,9 +281,6 @@ export default function DijkstraMinimum() {
     setResults(null);
     setHighlightedPath([]);
     setCalculationSteps([]);
-    setAllCalculationSteps([]);
-    setCurrentStepIndex(0);
-    setIsStepMode(false);
     setSourceNode(null);
     setTargetNode(null);
   };
@@ -602,36 +420,19 @@ export default function DijkstraMinimum() {
                   ))}
                 </select>
               </div>
-              <div className="grid grid-cols-1 gap-2">
-                <button 
-                  className="w-full px-4 py-2 bg-green-600 text-white font-medium rounded hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                  onClick={runDijkstra}
-                  disabled={!sourceNode || !targetNode}
-                >
-                  Calcul complet
-                </button>
-                <button 
-                  className="w-full px-4 py-2 bg-blue-600 text-white font-medium rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                  onClick={prepareDijkstra}
-                  disabled={!sourceNode || !targetNode}
-                >
-                  Calcul étape par étape
-                </button>
-                {isStepMode && (
-                  <button 
-                    className="w-full px-4 py-2 bg-indigo-600 text-white font-medium rounded hover:bg-indigo-700"
-                    onClick={nextStep}
-                  >
-                    Étape suivante
-                  </button>
-                )}
-                <button 
-                  className="w-full px-4 py-2 bg-gray-300 text-gray-700 font-medium rounded hover:bg-gray-400"
-                  onClick={resetResults}
-                >
-                  Réinitialiser
-                </button>
-              </div>
+              <button 
+                className="w-full px-4 py-2 bg-green-600 text-white font-medium rounded hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                onClick={runDijkstra}
+                disabled={!sourceNode || !targetNode}
+              >
+                Trouver le chemin le plus court
+              </button>
+              <button 
+                className="w-full px-4 py-2 bg-gray-300 text-gray-700 font-medium rounded hover:bg-gray-400"
+                onClick={resetResults}
+              >
+                Réinitialiser
+              </button>
             </div>
           </div>
           
@@ -836,7 +637,7 @@ export default function DijkstraMinimum() {
                               {distance === Infinity ? '∞' : distance}
                               {step.previous[node.id] !== null && step.previous[node.id] !== undefined && 
                                 <span className={`text-xs ml-1 ${isInFinalPath && isLast ? 'text-white' : 'text-gray-500'}`}>
-                                  ( {getNodeLabel(step.previous[node.id])})
+                                  (via {getNodeLabel(step.previous[node.id])})
                                 </span>
                               }
                             </td>
