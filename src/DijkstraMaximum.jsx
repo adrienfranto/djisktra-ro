@@ -25,15 +25,18 @@ export default function DijkstraMaximum() {
   const [edges, setEdges] = useState(initialEdges);
   const [selectedNode, setSelectedNode] = useState(null);
   const [selectedEdge, setSelectedEdge] = useState(null);
-  const [mode, setMode] = useState('view');
+  const [mode, setMode] = useState('view'); // 'view', 'addNode', 'addEdge', 'delete', 'move'
   const [sourceNode, setSourceNode] = useState(null);
   const [targetNode, setTargetNode] = useState(null);
   const [weight, setWeight] = useState(1);
   const [results, setResults] = useState(null);
   const [highlightedPath, setHighlightedPath] = useState([]);
   const [calculationSteps, setCalculationSteps] = useState([]);
+  const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  const [allCalculationSteps, setAllCalculationSteps] = useState([]);
   const [draggedNode, setDraggedNode] = useState(null);
   const [nodeCounts, setNodeCounts] = useState({});
+  const [isStepMode, setIsStepMode] = useState(false);
   const svgRef = useRef(null);
 
   // Calculer le nombre de chemins connectés à chaque nœud
@@ -58,6 +61,9 @@ export default function DijkstraMaximum() {
     setResults(null);
     setHighlightedPath([]);
     setCalculationSteps([]);
+    setAllCalculationSteps([]);
+    setCurrentStepIndex(0);
+    setIsStepMode(false);
     setMode('view');
     setDraggedNode(null);
   };
@@ -67,17 +73,11 @@ export default function DijkstraMaximum() {
     if (mode !== 'addNode') return;
     
     const svg = svgRef.current;
-    if (!svg) return;
-    
     const point = svg.createSVGPoint();
     point.x = e.clientX;
     point.y = e.clientY;
     
-    // Vérifier si la matrice SVG existe avant d'appeler matrixTransform
-    const matrix = svg.getScreenCTM();
-    if (!matrix) return;
-    
-    const svgP = point.matrixTransform(matrix.inverse());
+    const svgP = point.matrixTransform(svg.getScreenCTM().inverse());
     
     const newNode = {
       id: Date.now(),
@@ -101,17 +101,11 @@ export default function DijkstraMaximum() {
     if (mode !== 'move' || draggedNode === null) return;
     
     const svg = svgRef.current;
-    if (!svg) return;
-    
     const point = svg.createSVGPoint();
     point.x = e.clientX;
     point.y = e.clientY;
     
-    // Vérifier si la matrice SVG existe avant d'appeler matrixTransform
-    const matrix = svg.getScreenCTM();
-    if (!matrix) return;
-    
-    const svgP = point.matrixTransform(matrix.inverse());
+    const svgP = point.matrixTransform(svg.getScreenCTM().inverse());
     
     setNodes(nodes.map(node => 
       node.id === draggedNode 
@@ -174,103 +168,156 @@ export default function DijkstraMaximum() {
 
   // Mettre à jour le poids d'une arête
   const updateEdgeWeight = (edgeId, newWeight) => {
-    const weightValue = parseInt(newWeight) || 1;
     setEdges(edges.map(edge => 
-      edge.id === edgeId ? { ...edge, weight: weightValue } : edge
+      edge.id === edgeId ? { ...edge, weight: parseInt(newWeight) || 1 } : edge
     ));
   };
 
-  // Algorithme Dijkstra Maximum
-  const runDijkstraMaximum = () => {
-    if (!sourceNode || !targetNode) return;
-    
-    // Créer un graphe à partir des nœuds et arêtes
-    const graph = {};
-    nodes.forEach(node => {
-      graph[node.id] = {};
-    });
-    
-    edges.forEach(edge => {
-      graph[edge.source][edge.target] = edge.weight;
-      graph[edge.target][edge.source] = edge.weight; // graphe non orienté
-    });
-    
-    // Initialiser les maximums
-    const maximums = {};
-    const previous = {};
-    const unvisited = new Set();
-    const steps = [];
-    
-    nodes.forEach(node => {
-      maximums[node.id] = node.id === sourceNode ? 0 : -Infinity; // On initialise avec le minimum possible
-      previous[node.id] = null;
-      unvisited.add(node.id);
-    });
-    
-    // Capturer l'état initial
-    steps.push({
-      iteration: 0,
-      current: null,
-      maximums: { ...maximums },
-      unvisited: [...unvisited],
-      previous: { ...previous }
-    });
-    
-    let iteration = 1;
-    
-    // Algorithme Dijkstra Maximum
-    while (unvisited.size > 0) {
-      // Trouver le nœud avec le maximum le plus élevé
-      let maxValue = -Infinity;
-      let current = null;
+ const prepareDijkstra = () => {
+  if (!sourceNode || !targetNode) return;
+  
+  // Créer un graphe à partir des nœuds et arêtes
+  const graph = {};
+  nodes.forEach(node => {
+    graph[node.id] = {};
+  });
+  
+  edges.forEach(edge => {
+    graph[edge.source][edge.target] = edge.weight;
+    graph[edge.target][edge.source] = edge.weight; // graphe non orienté
+  });
+  
+  // Initialiser les distances
+  const distances = {};
+  const previous = {};
+  const unvisited = new Set();
+  const steps = [];
+  
+  nodes.forEach(node => {
+    distances[node.id] = node.id === sourceNode ? 0 : -Infinity;
+    previous[node.id] = null;
+    unvisited.add(node.id);
+  });
+  
+  // Capturer l'état initial
+  steps.push({
+    iteration: 0,
+    current: null,
+    distances: { ...distances },
+    unvisited: [...unvisited],
+    previous: { ...previous }
+  });
+  
+  setAllCalculationSteps(steps);
+  setCalculationSteps([steps[0]]);
+  setCurrentStepIndex(0);
+  setIsStepMode(true);
+  
+  // Réinitialiser les résultats précédents
+  setResults(null);
+  setHighlightedPath([]);
+};
+
+  // Passer à l'étape suivante de l'algorithme
+  const nextStep = () => {
+    if (currentStepIndex >= allCalculationSteps.length - 1) {
+      // Si on est déjà à la dernière étape existante, calculer la prochaine étape
+      calculateNextStep();
+    } else {
+      // Sinon, avancer à l'étape suivante déjà calculée
+      setCurrentStepIndex(currentStepIndex + 1);
+      setCalculationSteps(allCalculationSteps.slice(0, currentStepIndex + 2));
       
-      unvisited.forEach(nodeId => {
-        if (maximums[nodeId] > maxValue) {
-          maxValue = maximums[nodeId];
-          current = nodeId;
-        }
-      });
-      
-      if (current === null || current === targetNode) break;
-      
-      unvisited.delete(current);
-      
-      // Mettre à jour les maximums pour les voisins
-      const updates = {};
-      
-      Object.keys(graph[current]).forEach(neighbor => {
-        neighbor = parseInt(neighbor);
-        if (unvisited.has(neighbor)) {
-          // Chercher le maximum entre le chemin actuel et le nouveau chemin
-          const potentialMax = Math.max(
-            maximums[current] + graph[current][neighbor],
-            maximums[neighbor]
-          );
-          
-          if (potentialMax > maximums[neighbor]) {
-            updates[neighbor] = {
-              oldMax: maximums[neighbor],
-              newMax: potentialMax,
-              via: current
-            };
-            maximums[neighbor] = potentialMax;
-            previous[neighbor] = current;
-          }
-        }
-      });
-      
-      // Capturer cet état pour le tableau
-      steps.push({
-        iteration,
-        current,
-        maximums: { ...maximums },
-        unvisited: [...unvisited],
-        previous: { ...previous },
-        updates
-      });
-      
-      iteration++;
+      // Mettre à jour le chemin surligné si on est à la dernière étape
+      if (currentStepIndex + 1 === allCalculationSteps.length - 1) {
+        updateHighlightedPath();
+      }
     }
+  };
+
+  // Calculer la prochaine étape de l'algorithme de Dijkstra
+ const calculateNextStep = () => {
+  // Récupérer l'état actuel
+  const previousStep = allCalculationSteps[allCalculationSteps.length - 1];
+  const distances = { ...previousStep.distances };
+  const previous = { ...previousStep.previous };
+  const unvisited = new Set(previousStep.unvisited);
+  
+  // Récréer le graphe
+  const graph = {};
+  nodes.forEach(node => {
+    graph[node.id] = {};
+  });
+  
+  edges.forEach(edge => {
+    graph[edge.source][edge.target] = edge.weight;
+    graph[edge.target][edge.source] = edge.weight;
+  });
+  
+  // Trouver le nœud avec la distance maximale
+  let maxDistance = -Infinity;
+  let current = null;
+  
+  unvisited.forEach(nodeId => {
+    if (distances[nodeId] > maxDistance) {
+      maxDistance = distances[nodeId];
+      current = nodeId;
+    }
+  });
+  
+  // Vérifications de fin
+  if (current === null || current === targetNode || unvisited.size === 0) {
+    updateHighlightedPath();
+    return;
+  }
+  
+  unvisited.delete(current);
+  
+  // Mettre à jour les distances pour les voisins
+  const updates = {};
+  
+  Object.keys(graph[current]).forEach(neighbor => {
+    neighbor = parseInt(neighbor);
+    if (unvisited.has(neighbor)) {
+      const alt = distances[current] + graph[current][neighbor];
+      if (alt > distances[neighbor]) {
+        distances[neighbor] = alt;
+        previous[neighbor] = current;
+        updates[neighbor] = {
+          oldDistance: distances[neighbor],
+          newDistance: alt,
+          via: current
+        };
+      }
+    }
+  });
+  
+  // Créer la nouvelle étape
+  const newStep = {
+    iteration: allCalculationSteps.length,
+    current,
+    distances: { ...distances },
+    unvisited: [...unvisited],
+    previous: { ...previous },
+    updates
+  };
+  
+  // Mettre à jour toutes les étapes
+  const newAllSteps = [...allCalculationSteps, newStep];
+  setAllCalculationSteps(newAllSteps);
+  setCurrentStepIndex(newAllSteps.length - 1);
+  setCalculationSteps(newAllSteps);
+  
+  // Si on a atteint la destination, construire le chemin final
+  if (current === targetNode || unvisited.size === 0) {
+    updateHighlightedPath();
+  }
+};
+
+  // Construire et mettre à jour le chemin final
+  const updateHighlightedPath = () => {
+    const lastStep = allCalculationSteps[allCalculationSteps.length - 1];
+    const previous = lastStep.previous;
     
     // Reconstruire le chemin
     const path = [];
@@ -284,19 +331,153 @@ export default function DijkstraMaximum() {
     }
     
     setResults({
-      maxPath: maximums[targetNode],
+      distance: lastStep.distances[targetNode],
       path: path
     });
     
     setHighlightedPath(path);
-    setCalculationSteps(steps);
   };
 
+const runDijkstra = () => {
+    if (!sourceNode || !targetNode) return;
+    
+    // Créer un graphe à partir des nœuds et arêtes
+    const graph = {};
+    nodes.forEach(node => {
+      graph[node.id] = {};
+    });
+    
+    edges.forEach(edge => {
+      graph[edge.source][edge.target] = edge.weight;
+      graph[edge.target][edge.source] = edge.weight; // graphe non orienté
+    });
+    
+    // Initialiser les tableaux pour les étapes de calcul
+    const calculationSteps = [];
+    const initialDistances = {};
+    const initialPrevious = {};
+    
+    // Initialiser les distances et les chemins précédents
+    nodes.forEach(node => {
+      initialDistances[node.id] = node.id === sourceNode ? 0 : -Infinity;
+      initialPrevious[node.id] = null;
+    });
+    
+    // Ajouter l'étape initiale
+    calculationSteps.push({
+      iteration: 0,
+      current: null,
+      distances: { ...initialDistances },
+      previous: { ...initialPrevious },
+      unvisited: nodes.map(node => node.id),
+      updates: {}
+    });
+    
+    // Recherche exhaustive des chemins maximaux
+    const findMaxPath = (currentPath, currentWeight, unvisitedNodes) => {
+      const lastNode = currentPath[currentPath.length - 1];
+      
+      // Si on a atteint la destination, retourner ce chemin
+      if (lastNode === targetNode) {
+        return { path: currentPath, weight: currentWeight };
+      }
+      
+      // Stocker tous les chemins possibles
+      const possiblePaths = [];
+      
+      // Examiner tous les voisins non déjà visités
+      Object.keys(graph[lastNode]).forEach(neighborId => {
+        const neighbor = parseInt(neighborId);
+        
+        // Vérifier que le voisin est non visité et fait partie des nœuds non visités
+        if (!currentPath.includes(neighbor) && unvisitedNodes.includes(neighbor)) {
+          const edgeWeight = graph[lastNode][neighbor];
+          const newPath = [...currentPath, neighbor];
+          const newWeight = currentWeight + edgeWeight;
+          
+          // Créer une étape de calcul pour cette exploration
+          const stepDistances = { ...initialDistances };
+          newPath.forEach((node, index) => {
+            stepDistances[node] = currentWeight + (index > 0 ? graph[newPath[index-1]][node] : 0);
+          });
+          
+          calculationSteps.push({
+            iteration: calculationSteps.length,
+            current: neighbor,
+            distances: stepDistances,
+            previous: { ...initialPrevious, [neighbor]: lastNode },
+            unvisited: unvisitedNodes.filter(n => !newPath.includes(n)),
+            updates: {
+              [neighbor]: {
+                oldDistance: initialDistances[neighbor],
+                newDistance: stepDistances[neighbor],
+                via: lastNode
+              }
+            }
+          });
+          
+          // Récursivement explorer ce chemin
+          const newUnvisited = unvisitedNodes.filter(n => !newPath.includes(n));
+          const result = findMaxPath(newPath, newWeight, newUnvisited);
+          
+          if (result) {
+            possiblePaths.push(result);
+          }
+        }
+      });
+      
+      // Retourner le chemin avec le poids maximum
+      return possiblePaths.length > 0 
+        ? possiblePaths.reduce((max, current) => 
+            current.weight > max.weight ? current : max
+          )
+        : null;
+    };
+    
+    // Commencer la recherche à partir du nœud source
+    const maxPathResult = findMaxPath([sourceNode], 0, nodes.map(node => node.id).filter(id => id !== sourceNode));
+    
+    if (maxPathResult) {
+      // Ajouter l'étape finale avec le chemin complet
+      const finalStep = { ...calculationSteps[calculationSteps.length - 1] };
+      finalStep.iteration = calculationSteps.length;
+      const finalDistances = { ...finalStep.distances };
+      maxPathResult.path.forEach((node, index) => {
+        if (index > 0) {
+          finalDistances[node] = finalStep.distances[node] || 
+            (finalDistances[maxPathResult.path[index-1]] + graph[maxPathResult.path[index-1]][node]);
+        }
+      });
+      finalStep.distances = finalDistances;
+      calculationSteps.push(finalStep);
+      
+      // Définir les résultats
+      setResults({
+        distance: maxPathResult.weight,
+        path: maxPathResult.path
+      });
+      
+      setHighlightedPath(maxPathResult.path);
+      setCalculationSteps(calculationSteps);
+      setAllCalculationSteps(calculationSteps);
+      setCurrentStepIndex(calculationSteps.length - 1);
+      setIsStepMode(false);
+    } else {
+      // Aucun chemin trouvé
+      setResults(null);
+      setHighlightedPath([]);
+      setCalculationSteps([]);
+      setAllCalculationSteps([]);
+    }
+  };
   // Réinitialiser les résultats et les sélections
   const resetResults = () => {
     setResults(null);
     setHighlightedPath([]);
     setCalculationSteps([]);
+    setAllCalculationSteps([]);
+    setCurrentStepIndex(0);
+    setIsStepMode(false);
     setSourceNode(null);
     setTargetNode(null);
   };
@@ -332,10 +513,16 @@ export default function DijkstraMaximum() {
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 overflow-auto">
-      <header className="bg-gradient-to-r from-green-600 to-emerald-700 text-white p-4 shadow-md sticky top-0 z-10">
-        <h1 className="text-3xl font-bold">Algorithme Dijkstra Maximum</h1>
-        <p className="text-sm opacity-80">Trouvez le chemin avec le maximum de poids dans un graphe</p>
+       <header className="bg-gradient-to-r from-green-600 to-emerald-700 text-white p-4 shadow-md sticky top-0 z-10">
+        <h1 className="text-3xl font-bold">Algorithme CHO-DIJKSTRA MAXIMUM</h1>
+        <p className="text-sm opacity-80">Trouvez le chemin le plus long dans un graphe pondéré</p>
       </header>
+
+      {nodes.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75">
+          <p className="text-gray-600 text-lg">Aucun nœud. Commencez par ajouter des nœuds.</p>
+        </div>
+      )}
       
       <div className="flex flex-col lg:flex-row flex-1 p-4 gap-4">
         <div className="w-full lg:w-64 bg-white shadow-md p-4 flex flex-col rounded">
@@ -343,25 +530,25 @@ export default function DijkstraMaximum() {
             <h2 className="text-lg font-semibold mb-2 text-gray-700">Mode</h2>
             <div className="grid grid-cols-2 gap-2">
               <button 
-                className={`px-3 py-2 text-sm font-medium rounded ${mode === 'view' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                className={`px-3 py-2 text-sm font-medium rounded ${mode === 'view' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
                 onClick={() => setMode('view')}
               >
                 Afficher
               </button>
               <button 
-                className={`px-3 py-2 text-sm font-medium rounded ${mode === 'addNode' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                className={`px-3 py-2 text-sm font-medium rounded ${mode === 'addNode' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
                 onClick={() => setMode('addNode')}
               >
                 Ajouter Nœud
               </button>
               <button 
-                className={`px-3 py-2 text-sm font-medium rounded ${mode === 'addEdge' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                className={`px-3 py-2 text-sm font-medium rounded ${mode === 'addEdge' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
                 onClick={() => { setMode('addEdge'); setSourceNode(null); }}
               >
                 Ajouter Chemin
               </button>
               <button 
-                className={`px-3 py-2 text-sm font-medium rounded ${mode === 'move' ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                className={`px-3 py-2 text-sm font-medium rounded ${mode === 'move' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
                 onClick={() => setMode('move')}
               >
                 Déplacer
@@ -386,7 +573,7 @@ export default function DijkstraMaximum() {
                 className="w-full px-3 py-2 border border-gray-300 rounded"
               />
               <p className="text-sm text-gray-500 mt-1">
-                {sourceNode ? `Premier nœud sélectionné: ${findNodeById(sourceNode)?.label || ''}` : 'Sélectionnez le premier nœud'}
+                {sourceNode ? `Premier nœud sélectionné: ${findNodeById(sourceNode)?.label}` : 'Sélectionnez le premier nœud'}
               </p>
             </div>
           )}
@@ -399,7 +586,7 @@ export default function DijkstraMaximum() {
                 <input 
                   type="number"
                   min="1"
-                  value={edges.find(e => e.id === selectedEdge)?.weight || 1}
+                  value={edges.find(e => e.id === selectedEdge)?.weight}
                   onChange={(e) => updateEdgeWeight(selectedEdge, e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded"
                 />
@@ -436,19 +623,36 @@ export default function DijkstraMaximum() {
                   ))}
                 </select>
               </div>
-              <button 
-                className="w-full px-4 py-2 bg-green-600 text-white font-medium rounded hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                onClick={runDijkstraMaximum}
-                disabled={!sourceNode || !targetNode}
-              >
-                Trouver le chemin maximum
-              </button>
-              <button 
-                className="w-full px-4 py-2 bg-gray-300 text-gray-700 font-medium rounded hover:bg-gray-400"
-                onClick={resetResults}
-              >
-                Réinitialiser
-              </button>
+              <div className="grid grid-cols-1 gap-2">
+                <button 
+                  className="w-full px-4 py-2 bg-green-600 text-white font-medium rounded hover:bg-green-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  onClick={runDijkstra}
+                  disabled={!sourceNode || !targetNode}
+                >
+                  Calcul complet
+                </button>
+                <button 
+                  className="w-full px-4 py-2 bg-blue-600 text-white font-medium rounded hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  onClick={prepareDijkstra}
+                  disabled={!sourceNode || !targetNode}
+                >
+                  Calcul étape par étape
+                </button>
+                {isStepMode && (
+                  <button 
+                    className="w-full px-4 py-2 bg-indigo-600 text-white font-medium rounded hover:bg-indigo-700"
+                    onClick={nextStep}
+                  >
+                    Étape suivante
+                  </button>
+                )}
+                <button 
+                  className="w-full px-4 py-2 bg-gray-300 text-gray-700 font-medium rounded hover:bg-gray-400"
+                  onClick={resetResults}
+                >
+                  Réinitialiser
+                </button>
+              </div>
             </div>
           </div>
           
@@ -462,13 +666,13 @@ export default function DijkstraMaximum() {
           {results && (
             <div className="border-t pt-4 mt-4">
               <h2 className="text-lg font-semibold mb-2 text-gray-700">Résultats</h2>
-              <div className="bg-green-50 p-3 rounded border border-green-200">
+              <div className="bg-blue-50 p-3 rounded border border-blue-200">
                 <p className="font-medium text-gray-700">
-                  Maximum du chemin: <span className="text-green-600">{results.maxPath}</span>
+                  Distance: <span className="text-blue-600">{results.distance}</span>
                 </p>
                 <p className="font-medium text-gray-700">
-                  Chemin: <span className="text-green-600">
-                    {results.path.map(nodeId => findNodeById(nodeId)?.label || '').join(' → ')}
+                  Chemin: <span className="text-blue-600">
+                    {results.path.map(nodeId => findNodeById(nodeId)?.label).join(' → ')}
                   </span>
                 </p>
               </div>
@@ -503,7 +707,7 @@ export default function DijkstraMaximum() {
                       y1={sourceNode.y}
                       x2={targetNode.x}
                       y2={targetNode.y}
-                      stroke={isEdgeInPath(edge) ? "#10B981" : edge.id === selectedEdge ? "#EF4444" : "#9CA3AF"}
+                      stroke={isEdgeInPath(edge) ? "#2563EB" : edge.id === selectedEdge ? "#EF4444" : "#9CA3AF"}
                       strokeWidth={isEdgeInPath(edge) ? 4 : 2}
                       strokeLinecap="round"
                       className="cursor-pointer"
@@ -514,8 +718,8 @@ export default function DijkstraMaximum() {
                       width={24}
                       height={24}
                       rx={12}
-                      fill={isEdgeInPath(edge) ? "#10B981" : "white"}
-                      stroke={isEdgeInPath(edge) ? "#059669" : "#9CA3AF"}
+                      fill={isEdgeInPath(edge) ? "#2563EB" : "white"}
+                      stroke={isEdgeInPath(edge) ? "#1D4ED8" : "#9CA3AF"}
                       strokeWidth={1}
                       className="cursor-pointer"
                     />
@@ -540,14 +744,14 @@ export default function DijkstraMaximum() {
                   key={node.id} 
                   onClick={(e) => { e.stopPropagation(); handleSelectElement(node, 'node'); }}
                   onMouseDown={(e) => handleNodeDragStart(e, node.id)}
-                  className={mode === 'move' ? 'cursor-move' : 'cursor-pointer'}
+                  className={`cursor-${mode === 'move' ? 'move' : 'pointer'}`}
                 >
                   <circle
                     cx={node.x}
                     cy={node.y}
                     r={20}
-                    fill={highlightedPath.includes(node.id) ? "#10B981" : node.id === selectedNode ? "#EF4444" : node.id === sourceNode ? "#10B981" : node.id === targetNode ? "#8B5CF6" : "white"}
-                    stroke={highlightedPath.includes(node.id) ? "#059669" : node.id === selectedNode ? "#DC2626" : node.id === sourceNode ? "#059669" : node.id === targetNode ? "#7C3AED" : "#9CA3AF"}
+                    fill={highlightedPath.includes(node.id) ? "#2563EB" : node.id === selectedNode ? "#EF4444" : node.id === sourceNode ? "#10B981" : node.id === targetNode ? "#8B5CF6" : "white"}
+                    stroke={highlightedPath.includes(node.id) ? "#1D4ED8" : node.id === selectedNode ? "#DC2626" : node.id === sourceNode ? "#059669" : node.id === targetNode ? "#7C3AED" : "#9CA3AF"}
                     strokeWidth={2}
                   />
                   <text
@@ -603,7 +807,7 @@ export default function DijkstraMaximum() {
           {/* Tableau des étapes de calcul */}
           {calculationSteps.length > 0 && (
             <div className="bg-white shadow-md rounded p-4 overflow-x-auto">
-              <h2 className="text-lg font-semibold mb-3 text-gray-700">Étapes de calcul Dijkstra Maximum</h2>
+              <h2 className="text-lg font-semibold mb-3 text-gray-700">Étapes de calcul CHO-DIJKSTRA  MAX</h2>
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
@@ -612,7 +816,7 @@ export default function DijkstraMaximum() {
                       <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nœud courant</th>
                       {nodes.map(node => (
                         <th key={node.id} scope="col" className={`px-4 py-3 text-center text-xs font-medium uppercase tracking-wider
-                          ${isNodeInPath(node.id) ? 'bg-green-100 text-green-600' : 'text-gray-500'}`}>
+                          ${isNodeInPath(node.id) ? 'bg-blue-100 text-blue-600' : 'text-gray-500'}`}>
                           {node.label}
                         </th>
                       ))}
@@ -626,7 +830,7 @@ export default function DijkstraMaximum() {
                           {step.current ? getNodeLabel(step.current) : 'Initial'}
                         </td>
                         {nodes.map(node => {
-                          const maximum = step.maximums[node.id];
+                          const distance = step.distances[node.id];
                           const isUpdated = step.updates && step.updates[node.id];
                           const isInFinalPath = isNodeInPath(node.id);
                           const isLast = index === calculationSteps.length - 1;
@@ -636,13 +840,13 @@ export default function DijkstraMaximum() {
                           
                           if (isInFinalPath && isLast) {
                             // Nœud dans le chemin final et dernière itération
-                            cellClass = 'bg-green-500 text-white';
+                            cellClass = 'bg-blue-500 text-white';
                           } else if (isInFinalPath) {
                             // Nœud dans le chemin final
-                            cellClass = 'bg-green-100';
+                            cellClass = 'bg-blue-100';
                           } else if (isUpdated) {
                             // Valeur mise à jour
-                            cellClass = 'bg-emerald-100';
+                            cellClass = 'bg-green-100';
                           } else if (node.id === step.current) {
                             // Nœud courant
                             cellClass = 'bg-yellow-100';
@@ -650,10 +854,10 @@ export default function DijkstraMaximum() {
                           
                           return (
                             <td key={node.id} className={`px-4 py-2 whitespace-nowrap text-sm text-center ${cellClass}`}>
-                              {maximum === -Infinity ? '∞' : maximum}
+                              {distance === Infinity ? '∞' : distance}
                               {step.previous[node.id] !== null && step.previous[node.id] !== undefined && 
                                 <span className={`text-xs ml-1 ${isInFinalPath && isLast ? 'text-white' : 'text-gray-500'}`}>
-                                  (via {getNodeLabel(step.previous[node.id])})
+                                  ( {getNodeLabel(step.previous[node.id])})
                                 </span>
                               }
                             </td>
@@ -669,11 +873,11 @@ export default function DijkstraMaximum() {
                 <h3 className="font-medium mb-2">Légende:</h3>
                 <div className="flex flex-wrap items-center space-x-4">
                   <div className="flex items-center">
-                    <div className="w-4 h-4 bg-green-500 mr-2"></div>
+                    <div className="w-4 h-4 bg-blue-500 mr-2"></div>
                     <span>Chemin final</span>
                   </div>
                   <div className="flex items-center">
-                    <div className="w-4 h-4 bg-green-100 mr-2"></div>
+                    <div className="w-4 h-4 bg-blue-100 mr-2"></div>
                     <span>Nœud du chemin final</span>
                   </div>
                   <div className="flex items-center">
@@ -681,8 +885,8 @@ export default function DijkstraMaximum() {
                     <span>Nœud courant</span>
                   </div>
                   <div className="flex items-center">
-                    <div className="w-4 h-4 bg-emerald-100 mr-2"></div>
-                    <span>Maximum mis à jour</span>
+                    <div className="w-4 h-4 bg-green-100 mr-2"></div>
+                    <span>Distance mise à jour</span>
                   </div>
                   <div className="flex items-center">
                     <div className="w-4 h-4 bg-white border border-gray-300 mr-2"></div>
@@ -693,7 +897,7 @@ export default function DijkstraMaximum() {
             </div>
           )}
           
-        
+         
         </div>
       </div>
     </div>

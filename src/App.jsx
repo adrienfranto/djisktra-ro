@@ -2,8 +2,6 @@ import React from 'react';
 import { BrowserRouter as Router, Route, Routes, Link } from 'react-router-dom';
 import DijkstraMinimum from './DijkstraMinimum';
 import DijkstraMaximum from './DijkstraMaximum';
-import OrdonnancementTableau from './OrdonnancementTableau';
-import DijkstraMaximumMety from './DijkstraMaximumMety';
 
 function App() {
   return (
